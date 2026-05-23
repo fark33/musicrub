@@ -10,14 +10,10 @@ import yt_dlp
 
 # ---------- تنظیمات اولیه ----------
 TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
-
 DOWNLOAD_DIR = Path("downloads")
 MAX_DURATION_MINUTES = 30
 
-# نام فایل اجرایی جدید (هماهنگ با Dockerfile)
-PO_TOKEN_PROVIDER = "/usr/local/bin/bgutil-pot"
-
-# ---------- متون پیام‌ها (بدون تغییر) ----------
+# ---------- متون پیام‌ها (همانند قبل) ----------
 START_TEXT_MSG = (
     '🤖 Hello user!\n\n'
     '📩 I can download songs for you. Just send me the song name in below format:\n'
@@ -83,18 +79,15 @@ def is_spotify_link(text: str) -> bool:
 def is_valid_duration(duration_seconds: int) -> bool:
     return duration_seconds <= (MAX_DURATION_MINUTES * 60)
 
-# ---------- دانلود با استفاده از yt-dlp + PO Token ----------
+# ---------- دانلود با استفاده از PO Token Provider داخلی تصویر ----------
 async def download_from_youtube(song_query: str) -> dict:
+    # در این تصویر داکر، اسکریپت run-pot-server.sh سرور PO Token را روی پورت 4416 راه می‌اندازد
     po_proc = None
     try:
-        # اجرای سرور محلی PO Token Provider (روی پورت 8080)
-        po_proc = subprocess.Popen(
-            [PO_TOKEN_PROVIDER, "--bind", "127.0.0.1:8080"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        # اجرای اسکریپت آماده (در پس‌زمینه)
+        po_proc = subprocess.Popen(["/usr/local/bin/run-pot-server.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # منتظر آماده شدن سرور
-        await asyncio.sleep(2)
+        await asyncio.sleep(4)
 
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -111,10 +104,10 @@ async def download_from_youtube(song_query: str) -> dict:
                 'youtube': {
                     'player_client': ['ios', 'web'],
                     'skip': ['hls', 'dash'],
+                    # استفاده از PO Token Provider محلی (bgutil)
+                    'po_token_provider': 'bgutil:http://127.0.0.1:4416/get_pot',
                 },
             },
-            'youtube_po_token': f'ios:http://127.0.0.1:8080/po',
-            'compat_opts': ['allow-unplayable-formats'],
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -160,7 +153,7 @@ async def send_audio_with_caption(message: Message, audio_path: str, title: str)
         )
     cleanup_file(audio_path)
 
-# ---------- راه‌اندازی ربات ----------
+# ---------- راه‌اندازی ربات روبیکا ----------
 bot = Robot(token=TOKEN)
 
 @bot.on_message(commands=["start"])
@@ -200,10 +193,9 @@ async def song_handler(_: Robot, message: Message):
         print(f"❌ خطا: {e}")
 
 def main():
-    if not os.path.exists(PO_TOKEN_PROVIDER):
-        print(f"⚠️ هشدار: فایل {PO_TOKEN_PROVIDER} یافت نشد. ممکن است دانلود از یوتیوب با خطا مواجه شود.")
     setup_download_dir()
-    print("🎵 ربات دانلود آهنگ با روش PO Token راه‌اندازی شد...")
+    print("🎵 ربات دانلود آهنگ با روش PO Token (تصویر آماده) راه‌اندازی شد...")
+    print("⏳ در حال اتصال به سرور روبیکا...")
     bot.run()
 
 if __name__ == "__main__":
