@@ -4,12 +4,13 @@ import re
 import shutil
 from pathlib import Path
 
-from rubka import Robot, context
-from rubka.message import Message
+# اصلاحیه: ایمپورت های صحیح مطابق با مستندات rubka
+from rubka.asynco import Robot
+from rubka.context import Message
+from rubka.keypad import ChatKeypadBuilder
+from rubka.button import InlineBuilder
 
 import yt_dlp
-
-
 TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"  # توکن دریافتی از بات‌فادر روبیکا
 DOWNLOAD_DIR = Path("downloads")
 
