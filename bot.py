@@ -1,130 +1,231 @@
 import os
 import re
+import asyncio
+from random import randint
 from pathlib import Path
 
 from rubka.asynco import Robot
 from rubka.context import Message
 import yt_dlp
 
-# توکن ربات – بهتر است از متغیر محیطی خوانده شود
-TOKEN = os.getenv("TOKEN", "YOUR_BOT_TOKEN_HERE")
+# ------------------------------------------------------------
+# متون پیام‌ها (قبلاً در text_msg.py بودند)
+# ------------------------------------------------------------
+START_TEXT_MSG = (
+    '🤖 Hello user!\n\n'
+    '📩 I can download songs for you. Just send me the song name in below format:\n'
+    '*/song*  _song name_  or\n'
+    '*/song*  _musician name - song name_\n\n'
+    'to download some songs. 🎶\n\n'
+    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
+    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
+)
+
+CONFIRMATION_TEXT_MSG = (
+    "✅ Song downloaded successfully!\n\n"
+    "**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n"
+    "                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n"
+    "                          [»Get help](https://t.me/sanilaassistant_bot)\n"
+    "                          [»Give feedback](https://t.me/sanilaassistant_bot)"
+)
+
+SPOTIFY_INPUT_ERROR_TEXT_MSG = (
+    '‼️ *Oops! The bot does not support Spotify links!*\n'
+    'Try: "*/song* _song name_"\n'
+    'or: "*/song* _musician name - song name_"\n\n'
+    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
+    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
+)
+
+INVALID_COMMAND_ERROR_TEXT_MSG = (
+    '‼️ *Oops! Invalid command!*\n'
+    'Try: "*/song* _song name_"\n'
+    'or: "*/song* _musician name - song name_"\n\n'
+    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
+    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
+)
+
+TOO_LONG_ERROR_TEXT_MSG = (
+    '‼️ *Oops! Video too long to convert!*\n'
+    'Order something 30 minutes or less.\n\n'
+    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
+    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
+    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
+)
+
+# ------------------------------------------------------------
+# تنظیمات اصلی ربات
+# ------------------------------------------------------------
+TOKEN = os.getenv("TOKEN")
+if not TOKEN:
+    raise ValueError("❌ توکن ربات در متغیر محیطی TOKEN پیدا نشد.")
+
 DOWNLOAD_DIR = Path("downloads")
+MAX_DURATION_MINUTES = 30   # حداکثر مدت مجاز (دقیقه)
 
 
 def setup_download_dir():
-    """ایجاد پوشه دانلود در صورت نبودن"""
     DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 
-async def download_audio(song_query: str) -> str:
+def parse_song_name(user_input: str) -> str:
     """
-    جستجو در یوتیوب و دانلود اولین نتیجه به صورت MP3
-    برگرداندن مسیر فایل دانلود شده
+    استخراج نام آهنگ از دستور /song
+    """
+    # حذف ذکر بات (در تلگرام گاهی اضافه می‌شد)
+    user_input = user_input.replace('@songdownload597_bot', '')
+    if user_input.startswith('/song'):
+        song_name = user_input[5:].strip()
+        return song_name
+    return ""
+
+
+def is_spotify_link(text: str) -> bool:
+    """بررسی لینک اسپاتیفای"""
+    return 'open.spotify.com' in text
+
+
+def is_valid_duration(duration_seconds: int) -> bool:
+    """بررسی اینکه طول ویدیو کمتر از MAX_DURATION_MINUTES باشد"""
+    return duration_seconds <= (MAX_DURATION_MINUTES * 60)
+
+
+async def search_and_download(song_query: str) -> dict:
+    """
+    جستجو در یوتیوب و دانلود اولین نتیجه به صورت MP3.
+    برگرداندن دیکشنری شامل مسیر فایل، عنوان و مدت زمان (ثانیه).
     """
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '192',
+            'preferredquality': '256',
         }],
         'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
-        'default_search': 'ytsearch',   # جستجوی خودکار
+        'default_search': 'ytsearch',
+        'extract_flat': False,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         # جستجو و دانلود اولین نتیجه
         info = ydl.extract_info(f"ytsearch1:{song_query}", download=True)
-
         if 'entries' in info:
-            video_info = info['entries'][0]
+            video = info['entries'][0]
         else:
-            video_info = info
+            video = info
 
-        # ساخت نام فایل پاک و ایمن
-        base_title = video_info.get('title', song_query)
-        safe_title = re.sub(r'[\\/*?:"<>|]', "", base_title)
-        downloaded_file = DOWNLOAD_DIR / f"{safe_title}.mp3"
-
-        if downloaded_file.exists():
-            return str(downloaded_file)
-        else:
-            raise FileNotFoundError(f"فایل پیدا نشد: {downloaded_file}")
+        title = video.get('title', song_query)
+        duration = video.get('duration', 0)  # ثانیه
+        # پیدا کردن فایل نهایی (با پسوند mp3)
+        base_title = re.sub(r'[\\/*?:"<>|]', '', title)
+        file_path = DOWNLOAD_DIR / f"{base_title}.mp3"
+        if not file_path.exists():
+            # گاهی yt-dlp نام فایل را با کاراکترهای متفاوت ذخیره می‌کند
+            for f in DOWNLOAD_DIR.glob("*.mp3"):
+                if f.stem.startswith(base_title[:30]):
+                    file_path = f
+                    break
+        return {
+            'file_path': str(file_path),
+            'title': title,
+            'duration': duration
+        }
 
 
 def cleanup_file(file_path: str):
-    """حذف فایل از روی سرور بعد از ارسال"""
+    """حذف فایل از سرور بعد از ارسال"""
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
-            print(f"پاک شد: {file_path}")
+            print(f"🗑️ حذف شد: {file_path}")
     except Exception as e:
-        print(f"خطا در حذف فایل: {e}")
+        print(f"⚠️ خطا در حذف فایل: {e}")
 
 
-async def send_audio_with_caption(message: Message, audio_path: str):
-    """ارسال فایل صوتی با کپشن مشخص و سپس حذف فایل"""
-    with open(audio_path, 'rb') as audio_file:
-        await message.reply_audio(
-            audio=audio_file,
-            caption="🖇️♥️"
-        )
-    cleanup_file(audio_path)
-
-
-# ساخت نمونه ربات
+# ------------------------------------------------------------
+# راه‌اندازی ربات روبیکا
+# ------------------------------------------------------------
 bot = Robot(token=TOKEN)
 
 
 @bot.on_message(commands=["start"])
-async def start_command(bot: Robot, message: Message):
-    """دستور خوشامدگویی"""
-    await message.reply(
-        "🎵 به ربات دانلود آهنگ خوش آمدید!\n\n"
-        "برای دانلود آهنگ مورد نظر، دستور زیر را ارسال کنید:\n"
-        "/ahang --- نام آهنگ یا خواننده\n\n"
-        "مثال:\n"
-        "/ahang --- محسن ابراهیم زاده جدایی\n"
-        "/ahang --- Shajarian"
-    )
+async def start_handler(_: Robot, message: Message):
+    """دستور /start"""
+    await message.reply(START_TEXT_MSG, parse_mode="Markdown")
 
 
-@bot.on_message(commands=["ahang"])
-async def ahang_command(bot: Robot, message: Message):
-    """پردازش درخواست دانلود آهنگ"""
-    text = message.text or ""
-    match = re.search(r"/ahang\s+---\s+(.+)", text)
+@bot.on_message(commands=["song"])
+async def song_handler(_: Robot, message: Message):
+    """دستور /song - پردازش درخواست آهنگ"""
+    user_input = message.text or ""
+    song_name = parse_song_name(user_input)
 
-    if not match:
-        await message.reply(
-            "❌ فرمت دستور اشتباه است!\n"
-            "لطفاً به شکل زیر ارسال کنید:\n"
-            "/ahang --- نام آهنگ یا خواننده"
-        )
+    # بررسی خالی بودن نام آهنگ
+    if not song_name:
+        await message.reply(INVALID_COMMAND_ERROR_TEXT_MSG, parse_mode="Markdown")
         return
 
-    song_query = match.group(1).strip()
-    if not song_query:
-        await message.reply("❌ نام آهنگ یا خواننده نمی‌تواند خالی باشد.")
+    # بررسی لینک اسپاتیفای
+    if is_spotify_link(song_name):
+        await message.reply(SPOTIFY_INPUT_ERROR_TEXT_MSG, parse_mode="Markdown")
         return
 
-    # پیام وضعیت
-    status_msg = await message.reply(f"🔍 در حال جستجو و دانلود **{song_query}** ...")
+    # ارسال پیام در حال دانلود
+    status_msg = await message.reply(f"🎵 جستجو و دانلود:\n`{song_name}`\n⬇️ لطفاً صبر کنید...")
 
     try:
-        audio_path = await download_audio(song_query)
+        # دانلود آهنگ
+        result = await search_and_download(song_name)
+        duration_sec = result['duration']
+        file_path = result['file_path']
+        title = result['title']
+
+        # بررسی مدت زمان
+        if not is_valid_duration(duration_sec):
+            await status_msg.delete()
+            await message.reply(TOO_LONG_ERROR_TEXT_MSG, parse_mode="Markdown")
+            # حذف فایل اگر دانلود شده باشد
+            if os.path.exists(file_path):
+                cleanup_file(file_path)
+            return
+
+        # حذف پیام وضعیت
         await status_msg.delete()
-        await send_audio_with_caption(message, audio_path)
+
+        # ارسال فایل صوتی با کپشن 🖇️♥️
+        with open(file_path, 'rb') as audio_file:
+            await message.reply_audio(
+                audio=audio_file,
+                caption="🖇️♥️",
+                title=title  # عنوان آهنگ
+            )
+
+        # ارسال پیام تأیید نهایی
+        await message.reply(CONFIRMATION_TEXT_MSG, parse_mode="Markdown")
+
+        # حذف فایل از سرور
+        cleanup_file(file_path)
+
     except Exception as e:
         await status_msg.delete()
-        await message.reply(f"❌ خطا در دانلود یا ارسال: {str(e)}")
+        error_text = f"❌ خطا در دانلود یا ارسال:\n`{str(e)}`"
+        await message.reply(error_text)
+        print(f"❌ خطا: {e}")
 
 
 def main():
     setup_download_dir()
-    print("ربات با موفقیت راه‌اندازی شد...")
+    print("🎵 ربات دانلود آهنگ برای روبیکا راه‌اندازی شد...")
     bot.run()
 
 
