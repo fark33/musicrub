@@ -1,6 +1,6 @@
 rubka>=8.0.0
 yt-dlp>=2025.04.01
 Pillow>=10.0.0
-radiojavanapi>=1.0.0
+radiojavanapi>=0.6.1
 spotipy>=2.25.0
 requests>=2.31.0
