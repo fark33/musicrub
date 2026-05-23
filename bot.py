@@ -7,7 +7,7 @@ from rubka.context import Message
 import yt_dlp
 
 # توکن ربات – حتماً در Koyeb متغیر محیطی TOKEN را تعریف کنید
-TOKEN = os.getenv("TOKEN", "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY")
+TOKEN = os.getenv("TOKEN", "YOUR_BOT_TOKEN_HERE")
 DOWNLOAD_DIR = Path("downloads")
 COOKIE_FILE = "cookies.txt"  # فایل کوکی را در کنار bot.py قرار دهید
 
