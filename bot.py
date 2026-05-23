@@ -6,10 +6,9 @@ from rubka.asynco import Robot
 from rubka.context import Message
 import yt_dlp
 
-# توکن ربات – حتماً در Koyeb متغیر محیطی TOKEN را تعریف کنید
+# توکن ربات – بهتر است از متغیر محیطی خوانده شود
 TOKEN = os.getenv("TOKEN", "YOUR_BOT_TOKEN_HERE")
 DOWNLOAD_DIR = Path("downloads")
-COOKIE_FILE = "cookies.txt"  # فایل کوکی را در کنار bot.py قرار دهید
 
 
 def setup_download_dir():
@@ -20,10 +19,9 @@ def setup_download_dir():
 async def download_audio(song_query: str) -> str:
     """
     جستجو در یوتیوب و دانلود اولین نتیجه به صورت MP3
-    با استفاده از فایل کوکی برای دور زدن محدودیت دیتاسنتر
+    برگرداندن مسیر فایل دانلود شده
     """
     ydl_opts = {
-        'cookiefile': COOKIE_FILE,          # استفاده از کوکی ذخیره شده
         'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -33,14 +31,7 @@ async def download_audio(song_query: str) -> str:
         'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
-        'default_search': 'ytsearch',
-        # گزینه‌های زیر برای جلوگیری از خطای bot
-        'extractor_args': {
-            'youtube': {
-                'skip': ['hls', 'dash'],
-                'player_client': ['android', 'web'],
-            }
-        }
+        'default_search': 'ytsearch',   # جستجوی خودکار
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -52,7 +43,7 @@ async def download_audio(song_query: str) -> str:
         else:
             video_info = info
 
-        # ساخت نام فایل ایمن
+        # ساخت نام فایل پاک و ایمن
         base_title = video_info.get('title', song_query)
         safe_title = re.sub(r'[\\/*?:"<>|]', "", base_title)
         downloaded_file = DOWNLOAD_DIR / f"{safe_title}.mp3"
@@ -132,9 +123,6 @@ async def ahang_command(bot: Robot, message: Message):
 
 
 def main():
-    # بررسی وجود فایل کوکی
-    if not os.path.exists(COOKIE_FILE):
-        print(f"⚠️ هشدار: فایل {COOKIE_FILE} یافت نشد. ممکن است یوتیوب خطای bot بدهد.")
     setup_download_dir()
     print("ربات با موفقیت راه‌اندازی شد...")
     bot.run()
