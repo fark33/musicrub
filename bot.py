@@ -1,14 +1,12 @@
 import os
 import re
-import requests
+import asyncio
+import subprocess
 from pathlib import Path
 
 from rubka.asynco import Robot
 from rubka.context import Message
 import yt_dlp
-from radiojavanapi import Client as RJClient
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
 
 # ---------- تنظیمات اولیه ----------
 TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
@@ -16,7 +14,10 @@ TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
 DOWNLOAD_DIR = Path("downloads")
 MAX_DURATION_MINUTES = 30
 
-# متون پیام‌ها (همان‌هایی که قبلاً داشتید)
+# مسیر اجرایی تولیدکننده PO Token (در Docker نصب شده)
+PO_TOKEN_PROVIDER = "/usr/local/bin/bgutil-ytdlp-pot-provider-rs"
+
+# ---------- متون پیام‌ها (مشابه قبل) ----------
 START_TEXT_MSG = (
     '🤖 Hello user!\n\n'
     '📩 I can download songs for you. Just send me the song name in below format:\n'
@@ -82,96 +83,76 @@ def is_spotify_link(text: str) -> bool:
 def is_valid_duration(duration_seconds: int) -> bool:
     return duration_seconds <= (MAX_DURATION_MINUTES * 60)
 
-# ---------- دانلود از یوتیوب (برای آهنگ‌های غیرفارسی) ----------
+# ---------- دانلود با استفاده از yt-dlp + PO Token ----------
 async def download_from_youtube(song_query: str) -> dict:
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '256',
-        }],
-        'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
-        'quiet': True,
-        'no_warnings': True,
-        'default_search': 'ytsearch',
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch1:{song_query}", download=True)
-        if 'entries' in info:
-            video = info['entries'][0]
-        else:
-            video = info
-        title = video.get('title', song_query)
-        duration = video.get('duration', 0)
-        base_title = re.sub(r'[\\/*?:"<>|]', '', title)
-        file_path = DOWNLOAD_DIR / f"{base_title}.mp3"
-        if not file_path.exists():
-            # fallback: هر فایل mp3 جدید در پوشه
-            for f in DOWNLOAD_DIR.glob("*.mp3"):
-                if f.stem.startswith(base_title[:30]):
-                    file_path = f
-                    break
-        return {'file_path': str(file_path), 'title': title, 'duration': duration}
+    """
+    جستجو و دانلود آهنگ از یوتیوب با استفاده از PO Token Provider
+    """
+    # راه‌اندازی سرور تولیدکننده توکن در پس‌زمینه
+    # برنامه bgutil-ytdlp-pot-provider-rs روی پورت 8080 یک API ارائه می‌دهد
+    # ما آن را به عنوان subprocess اجرا می‌کنیم
+    po_proc = None
+    try:
+        po_proc = subprocess.Popen(
+            [PO_TOKEN_PROVIDER, "--bind", "127.0.0.1:8080"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # کمی صبر تا سرور آماده شود
+        await asyncio.sleep(2)
 
-# ---------- دانلود از RadioJavan (برای آهنگ‌های فارسی) ----------
-async def download_from_radiojavan(song_query: str) -> dict:
-    rj_client = RJClient()
-    search_results = rj_client.search(song_query)
-    if not search_results:
-        raise Exception("هیچ نتیجه‌ای در رادیو جوان یافت نشد.")
-    
-    first_song = search_results[0]
-    # لینک مستقیم دانلود با کیفیت بالا (hq_link) یا لینک معمولی
-    download_link = first_song.get('hq_link') or first_song.get('link')
-    if not download_link:
-        raise Exception("لینک دانلود پیدا نشد.")
-    
-    title = first_song.get('name', song_query)
-    safe_title = re.sub(r'[\\/*?:"<>|]', '', title)
-    file_path = DOWNLOAD_DIR / f"{safe_title}.mp3"
-    
-    # دانلود فایل با استفاده از requests
-    response = requests.get(download_link, stream=True)
-    response.raise_for_status()
-    with open(file_path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
-    
-    duration = 0  # رادیو جوان مدت زمان نمی‌دهد
-    return {'file_path': str(file_path), 'title': title, 'duration': duration}
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '256',
+            }],
+            'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'default_search': 'ytsearch',
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'web'],   # کلاینت‌های معتبر
+                    'skip': ['hls', 'dash'],           # ساده‌سازی درخواست‌ها
+                },
+            },
+            # استفاده از PO Token از طریق سرور محلی
+            'youtube_po_token': f'ios:http://127.0.0.1:8080/po',
+            'compat_opts': ['allow-unplayable-formats'],
+        }
 
-# ---------- جستجو در Spotify و دانلود از یوتیوب ----------
-async def search_spotify_and_download(song_query: str) -> dict:
-    client_id = os.getenv("SPOTIFY_CLIENT_ID")
-    client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
-    if client_id and client_secret:
-        try:
-            auth_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
-            sp = spotipy.Spotify(auth_manager=auth_manager)
-            results = sp.search(q=song_query, type='track', limit=1)
-            if results['tracks']['items']:
-                track = results['tracks']['items'][0]
-                track_name = track['name']
-                artist_name = track['artists'][0]['name']
-                return await download_from_youtube(f"{artist_name} {track_name}")
-        except Exception as e:
-            print(f"Spotify error: {e}, falling back to direct YouTube search")
-    # fallback به یوتیوب بدون Spotify
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch1:{song_query}", download=True)
+            if 'entries' in info:
+                video = info['entries'][0]
+            else:
+                video = info
+
+            title = video.get('title', song_query)
+            duration = video.get('duration', 0)
+            base_title = re.sub(r'[\\/*?:"<>|]', '', title)
+            file_path = DOWNLOAD_DIR / f"{base_title}.mp3"
+            if not file_path.exists():
+                # fallback
+                for f in DOWNLOAD_DIR.glob("*.mp3"):
+                    if f.stem.startswith(base_title[:30]):
+                        file_path = f
+                        break
+            return {'file_path': str(file_path), 'title': title, 'duration': duration}
+    finally:
+        if po_proc:
+            po_proc.terminate()
+            await asyncio.sleep(1)
+            po_proc.kill()
+
+# ---------- تابع اصلی دانلود (فقط از یوتیوب با PO Token) ----------
+async def download_audio(song_query: str) -> dict:
+    # مستقیماً از متد با توکن استفاده می‌کنیم
     return await download_from_youtube(song_query)
 
-# ---------- تابع اصلی دانلود (تشخیص خودکار زبان فارسی) ----------
-async def download_audio(song_query: str) -> dict:
-    # اگر متن شامل حروف فارسی باشد، از رادیو جوان استفاده کن
-    if re.search('[\u0600-\u06FF]', song_query):
-        try:
-            return await download_from_radiojavan(song_query)
-        except Exception as e:
-            print(f"RadioJavan failed: {e}, falling back to Spotify/YouTube")
-            return await search_spotify_and_download(song_query)
-    else:
-        return await search_spotify_and_download(song_query)
-
+# ---------- پاکسازی فایل و ارسال ----------
 def cleanup_file(file_path: str):
     try:
         if os.path.exists(file_path):
@@ -229,8 +210,11 @@ async def song_handler(_: Robot, message: Message):
         print(f"❌ خطا: {e}")
 
 def main():
+    # بررسی وجود فایل اجرایی PO Token
+    if not os.path.exists(PO_TOKEN_PROVIDER):
+        print(f"⚠️ هشدار: فایل {PO_TOKEN_PROVIDER} یافت نشد. ممکن است دانلود از یوتیوب با خطا مواجه شود.")
     setup_download_dir()
-    print("🎵 ربات دانلود آهنگ با روش ترکیبی (رادیو جوان + یوتیوب) راه‌اندازی شد...")
+    print("🎵 ربات دانلود آهنگ با روش PO Token راه‌اندازی شد...")
     bot.run()
 
 if __name__ == "__main__":
