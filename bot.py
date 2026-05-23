@@ -63,10 +63,7 @@ TOO_LONG_ERROR_TEXT_MSG = (
 # ------------------------------------------------------------
 # تنظیمات اصلی ربات
 # ------------------------------------------------------------
-TOKEN = os.getenv("TOKEN")
-if not TOKEN:
-    raise ValueError("❌ توکن ربات در متغیر محیطی TOKEN پیدا نشد.")
-
+TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
 DOWNLOAD_DIR = Path("downloads")
 MAX_DURATION_MINUTES = 30   # حداکثر مدت مجاز (دقیقه)
 
