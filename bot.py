@@ -14,10 +14,10 @@ TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
 DOWNLOAD_DIR = Path("downloads")
 MAX_DURATION_MINUTES = 30
 
-# مسیر اجرایی تولیدکننده PO Token (در Docker نصب شده)
-PO_TOKEN_PROVIDER = "/usr/local/bin/bgutil-ytdlp-pot-provider-rs"
+# نام فایل اجرایی جدید (هماهنگ با Dockerfile)
+PO_TOKEN_PROVIDER = "/usr/local/bin/bgutil-pot"
 
-# ---------- متون پیام‌ها (مشابه قبل) ----------
+# ---------- متون پیام‌ها (بدون تغییر) ----------
 START_TEXT_MSG = (
     '🤖 Hello user!\n\n'
     '📩 I can download songs for you. Just send me the song name in below format:\n'
@@ -85,20 +85,15 @@ def is_valid_duration(duration_seconds: int) -> bool:
 
 # ---------- دانلود با استفاده از yt-dlp + PO Token ----------
 async def download_from_youtube(song_query: str) -> dict:
-    """
-    جستجو و دانلود آهنگ از یوتیوب با استفاده از PO Token Provider
-    """
-    # راه‌اندازی سرور تولیدکننده توکن در پس‌زمینه
-    # برنامه bgutil-ytdlp-pot-provider-rs روی پورت 8080 یک API ارائه می‌دهد
-    # ما آن را به عنوان subprocess اجرا می‌کنیم
     po_proc = None
     try:
+        # اجرای سرور محلی PO Token Provider (روی پورت 8080)
         po_proc = subprocess.Popen(
             [PO_TOKEN_PROVIDER, "--bind", "127.0.0.1:8080"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        # کمی صبر تا سرور آماده شود
+        # منتظر آماده شدن سرور
         await asyncio.sleep(2)
 
         ydl_opts = {
@@ -114,11 +109,10 @@ async def download_from_youtube(song_query: str) -> dict:
             'default_search': 'ytsearch',
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['ios', 'web'],   # کلاینت‌های معتبر
-                    'skip': ['hls', 'dash'],           # ساده‌سازی درخواست‌ها
+                    'player_client': ['ios', 'web'],
+                    'skip': ['hls', 'dash'],
                 },
             },
-            # استفاده از PO Token از طریق سرور محلی
             'youtube_po_token': f'ios:http://127.0.0.1:8080/po',
             'compat_opts': ['allow-unplayable-formats'],
         }
@@ -135,7 +129,6 @@ async def download_from_youtube(song_query: str) -> dict:
             base_title = re.sub(r'[\\/*?:"<>|]', '', title)
             file_path = DOWNLOAD_DIR / f"{base_title}.mp3"
             if not file_path.exists():
-                # fallback
                 for f in DOWNLOAD_DIR.glob("*.mp3"):
                     if f.stem.startswith(base_title[:30]):
                         file_path = f
@@ -147,12 +140,9 @@ async def download_from_youtube(song_query: str) -> dict:
             await asyncio.sleep(1)
             po_proc.kill()
 
-# ---------- تابع اصلی دانلود (فقط از یوتیوب با PO Token) ----------
 async def download_audio(song_query: str) -> dict:
-    # مستقیماً از متد با توکن استفاده می‌کنیم
     return await download_from_youtube(song_query)
 
-# ---------- پاکسازی فایل و ارسال ----------
 def cleanup_file(file_path: str):
     try:
         if os.path.exists(file_path):
@@ -170,7 +160,7 @@ async def send_audio_with_caption(message: Message, audio_path: str, title: str)
         )
     cleanup_file(audio_path)
 
-# ---------- راه‌اندازی ربات روبیکا ----------
+# ---------- راه‌اندازی ربات ----------
 bot = Robot(token=TOKEN)
 
 @bot.on_message(commands=["start"])
@@ -210,7 +200,6 @@ async def song_handler(_: Robot, message: Message):
         print(f"❌ خطا: {e}")
 
 def main():
-    # بررسی وجود فایل اجرایی PO Token
     if not os.path.exists(PO_TOKEN_PROVIDER):
         print(f"⚠️ هشدار: فایل {PO_TOKEN_PROVIDER} یافت نشد. ممکن است دانلود از یوتیوب با خطا مواجه شود.")
     setup_download_dir()
