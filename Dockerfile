@@ -1,24 +1,18 @@
 FROM python:3.11-slim
 
-# متغیرهای محیطی برای Rust/Cargo
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# نصب وابستگی‌های سیستم، ffmpeg، curl، و ابزارهای Rust
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg curl build-essential pkg-config libssl-dev && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-    rustup update
-
 WORKDIR /app
 
-# کلون و نصب تولیدکننده توکن (bgutil-ytdlp-pot-provider-rs)
-RUN git clone https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs.git && \
-    cd bgutil-ytdlp-pot-provider-rs && \
-    cargo build --release && \
-    cp target/release/bgutil-ytdlp-pot-provider-rs /usr/local/bin/ && \
-    cd /app && rm -rf bgutil-ytdlp-pot-provider-rs
+# نصب وابستگی‌های سیستم، از جمله wget برای دانلود و ffmpeg
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg wget && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# دانلود و تنظیم فایل باینری از پیش کامپایل شده PO Token Provider
+# آدرس لینک برای پردازنده‌های 64 بیتی (x86_64) تنظیم شده است.
+RUN wget -q https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/latest/download/bgutil-pot-linux-x86_64 && \
+    chmod +x bgutil-pot-linux-x86_64 && \
+    mv bgutil-pot-linux-x86_64 /usr/local/bin/bgutil-pot
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
