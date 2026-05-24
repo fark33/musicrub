@@ -87,18 +87,19 @@ async def song_handler(_: Robot, message: Message):
             'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
+            'cookiefile': 'cookies.txt',          # اضافه شد
+            'sleep_interval': 3,                  # تاخیر بین درخواست‌ها
+            'extractor_retries': 3,
         }
 
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(link, download=True)
             filename = ydl.prepare_filename(info).replace('.webm', '.m4a').replace('.opus', '.m4a')
             if not os.path.exists(filename):
-                # اگر پسوند متفاوت بود
                 for f in DOWNLOAD_DIR.glob(f"{info['title']}*"):
                     filename = str(f)
                     break
 
-        # ارسال فایل صوتی به روبیکا
         caption = "🎧 **دانلود شده توسط ربات**"
         with open(filename, 'rb') as audio_file:
             await message.reply_audio(
@@ -111,7 +112,6 @@ async def song_handler(_: Robot, message: Message):
             )
 
         await status_msg.delete()
-        # پاکسازی فایل‌ها
         os.remove(filename)
         os.remove(thumb_name)
 
@@ -129,7 +129,6 @@ async def video_handler(_: Robot, message: Message):
 
     status_msg = await message.reply(f"🔎 **در حال جستجوی ویدیو:** `{query}` ...")
     try:
-        # جستجو با youtubesearchpython
         search = SearchVideos(query, offset=1, mode="dict", max_results=1)
         result = search.result()
         search_list = result["search_result"]
@@ -143,19 +142,20 @@ async def video_handler(_: Robot, message: Message):
         video_id = video_info["id"]
         thumbnail_url = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
 
-        # دانلود thumbnail
         thumb_name = f"thumb_{video_id}.jpg"
         wget.download(thumbnail_url, out=thumb_name)
 
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی ویدیو...**")
 
-        # تنظیمات yt-dlp برای دانلود بهترین کیفیت و تبدیل به mp4
         ydl_opts = {
             'format': 'best[ext=mp4]/best',
             'outtmpl': str(DOWNLOAD_DIR / '%(id)s.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
             'merge_output_format': 'mp4',
+            'cookiefile': 'cookies.txt',          # اضافه شد
+            'sleep_interval': 3,
+            'extractor_retries': 3,
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
                 'preferedformat': 'mp4',
@@ -170,7 +170,6 @@ async def video_handler(_: Robot, message: Message):
                     filename = str(f)
                     break
 
-        # ارسال ویدیو به روبیکا
         caption = f"🎬 **{title[:50]}**\nدرخواست شده توسط کاربر"
         with open(filename, 'rb') as video_file, open(thumb_name, 'rb') as thumb_file:
             await message.reply_video(
@@ -184,7 +183,6 @@ async def video_handler(_: Robot, message: Message):
             )
 
         await status_msg.delete()
-        # پاکسازی فایل‌ها
         os.remove(filename)
         os.remove(thumb_name)
 
