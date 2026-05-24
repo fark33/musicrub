@@ -13,7 +13,7 @@ from rubka.asynco import Robot
 from rubka.context import Message
 
 # ---------- تنظیمات ----------
-TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
+TOKEN = os.environ.get("BOT_TOKEN", "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY")
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 MAX_DOWNLOAD_TIMEOUT = 300  # حداکثر زمان دانلود (5 دقیقه)
