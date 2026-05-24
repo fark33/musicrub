@@ -36,23 +36,31 @@ def get_query(message: Message) -> str:
 
 # ---------- توابع همگام (Synchronous) برای دانلود واقعی (اجرا در thread جدا) ----------
 def sync_download_song(link: str):
-    """دانلود آهنگ (اجرا در thread مجزا)"""
+    """دانلود آهنگ (اجرا در thread مجزا) - فرمت خودکار و تبدیل به mp3"""
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio',
+        'format': 'bestaudio/best',   # هر فرمت صوتی موجود را می‌گیرد
         'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
+        'logger': None,               # غیرفعال کردن لاگر yt-dlp
         'cookiefile': 'cookies.txt',
         'sleep_interval': 3,
         'extractor_retries': 3,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '256',
+        }],
         'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'compat_opts': ['allow-unsafe-extractor-args'],
     }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(link, download=True)
-        filename = ydl.prepare_filename(info).replace('.webm', '.m4a').replace('.opus', '.m4a')
+        # نام فایل نهایی بعد از تبدیل به mp3
+        filename = ydl.prepare_filename(info).replace('.webm', '.mp3').replace('.m4a', '.mp3').replace('.opus', '.mp3')
         if not os.path.exists(filename):
-            for f in DOWNLOAD_DIR.glob(f"{info['title']}*"):
+            # fallback: هر فایل mp3 در پوشه با عنوان مشابه
+            for f in DOWNLOAD_DIR.glob(f"{info['title']}*.mp3"):
                 filename = str(f)
                 break
         return {'filename': filename, 'info': info}
@@ -64,6 +72,7 @@ def sync_download_video(video_url: str):
         'outtmpl': str(DOWNLOAD_DIR / '%(id)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
+        'logger': None,
         'merge_output_format': 'mp4',
         'cookiefile': 'cookies.txt',
         'sleep_interval': 3,
@@ -242,7 +251,7 @@ except ImportError:
 # ---------- اجرای ربات ----------
 def main():
     print("🎬 ربات دانلود آهنگ و ویدیو در روبیکا راه‌اندازی شد...")
-    start_web_server()   # اجرای وب سرور در background
+    start_web_server()
     bot.run()
 
 if __name__ == "__main__":
