@@ -34,6 +34,52 @@ def get_query(message: Message) -> str:
         return parts[1].strip()
     return ""
 
+# ---------- توابع همگام (Synchronous) برای دانلود واقعی (اجرا در thread جدا) ----------
+def sync_download_song(link: str, title: str, thumb_name: str, duration_sec: int):
+    """دانلود آهنگ (اجرا در thread مجزا)"""
+    ydl_opts = {
+        'format': 'bestaudio[ext=m4a]/bestaudio',
+        'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
+        'quiet': True,
+        'no_warnings': True,
+        'cookiefile': 'cookies.txt',
+        'sleep_interval': 3,
+        'extractor_retries': 3,
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(link, download=True)
+        filename = ydl.prepare_filename(info).replace('.webm', '.m4a').replace('.opus', '.m4a')
+        if not os.path.exists(filename):
+            for f in DOWNLOAD_DIR.glob(f"{info['title']}*"):
+                filename = str(f)
+                break
+        return {'filename': filename, 'title': info.get('title', title), 'duration': info.get('duration', duration_sec)}
+
+def sync_download_video(video_url: str, thumb_name: str):
+    """دانلود ویدیو (اجرا در thread مجزا)"""
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best',
+        'outtmpl': str(DOWNLOAD_DIR / '%(id)s.%(ext)s'),
+        'quiet': True,
+        'no_warnings': True,
+        'merge_output_format': 'mp4',
+        'cookiefile': 'cookies.txt',
+        'sleep_interval': 3,
+        'extractor_retries': 3,
+        'postprocessors': [{
+            'key': 'FFmpegVideoConvertor',
+            'preferedformat': 'mp4',
+        }],
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(video_url, download=True)
+        filename = ydl.prepare_filename(info).replace('.webm', '.mp4').replace('.mkv', '.mp4')
+        if not os.path.exists(filename):
+            for f in DOWNLOAD_DIR.glob(f"{info['id']}*.mp4"):
+                filename = str(f)
+                break
+        return {'filename': filename, 'info': info}
+
 # ---------- هندلر استارت ----------
 bot = Robot(token=TOKEN)
 
@@ -51,6 +97,7 @@ async def song_handler(_: Robot, message: Message):
 
     status_msg = await message.reply(f"🔎 **در حال جستجو:** `{query}` ...")
     try:
+        # جستجو در یوتیوب
         results = YoutubeSearch(query, max_results=1).to_dict()
         if not results:
             await status_msg.edit("❌ هیچ نتیجه‌ای یافت نشد.")
@@ -80,24 +127,12 @@ async def song_handler(_: Robot, message: Message):
 
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی آهنگ...**")
 
-        ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/bestaudio',
-            'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'cookiefile': 'cookies.txt',      # استفاده از کوکی
-            'sleep_interval': 3,
-            'extractor_retries': 3,
-        }
+        # اجرای دانلود در یک thread جدا (برای جلوگیری از قفل شدن ربات)
+        result = await asyncio.to_thread(sync_download_song, link, title, thumb_name, duration_sec)
+        filename = result['filename']
+        # title و duration از result گرفته شود (اختیاری)
 
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(link, download=True)
-            filename = ydl.prepare_filename(info).replace('.webm', '.m4a').replace('.opus', '.m4a')
-            if not os.path.exists(filename):
-                for f in DOWNLOAD_DIR.glob(f"{info['title']}*"):
-                    filename = str(f)
-                    break
-
+        # ارسال فایل صوتی به روبیکا
         caption = "🎧 **دانلود شده توسط ربات**"
         with open(filename, 'rb') as audio_file:
             await message.reply_audio(
@@ -110,6 +145,7 @@ async def song_handler(_: Robot, message: Message):
             )
 
         await status_msg.delete()
+        # پاکسازی فایل‌ها
         os.remove(filename)
         os.remove(thumb_name)
 
@@ -127,6 +163,7 @@ async def video_handler(_: Robot, message: Message):
 
     status_msg = await message.reply(f"🔎 **در حال جستجوی ویدیو:** `{query}` ...")
     try:
+        # جستجو با youtubesearchpython
         search = SearchVideos(query, offset=1, mode="dict", max_results=1)
         result = search.result()
         search_list = result["search_result"]
@@ -140,34 +177,18 @@ async def video_handler(_: Robot, message: Message):
         video_id = video_info["id"]
         thumbnail_url = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
 
+        # دانلود thumbnail
         thumb_name = f"thumb_{video_id}.jpg"
         wget.download(thumbnail_url, out=thumb_name)
 
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی ویدیو...**")
 
-        ydl_opts = {
-            'format': 'best[ext=mp4]/best',
-            'outtmpl': str(DOWNLOAD_DIR / '%(id)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'merge_output_format': 'mp4',
-            'cookiefile': 'cookies.txt',      # استفاده از کوکی
-            'sleep_interval': 3,
-            'extractor_retries': 3,
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
-        }
+        # اجرای دانلود در thread جدا
+        result = await asyncio.to_thread(sync_download_video, video_url, thumb_name)
+        filename = result['filename']
+        info = result['info']
 
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=True)
-            filename = ydl.prepare_filename(info).replace('.webm', '.mp4').replace('.mkv', '.mp4')
-            if not os.path.exists(filename):
-                for f in DOWNLOAD_DIR.glob(f"{info['id']}*.mp4"):
-                    filename = str(f)
-                    break
-
+        # ارسال ویدیو به روبیکا
         caption = f"🎬 **{title[:50]}**\nدرخواست شده توسط کاربر"
         with open(filename, 'rb') as video_file, open(thumb_name, 'rb') as thumb_file:
             await message.reply_video(
@@ -181,6 +202,7 @@ async def video_handler(_: Robot, message: Message):
             )
 
         await status_msg.delete()
+        # پاکسازی فایل‌ها
         os.remove(filename)
         os.remove(thumb_name)
 
@@ -215,7 +237,7 @@ except ImportError:
 
 # ---------- اجرای ربات ----------
 def main():
-    print("🎬 ربات دانلود آهنگ و ویدیو (مبتنی بر کد تلگرام) در روبیکا راه‌اندازی شد...")
+    print("🎬 ربات دانلود آهنگ و ویدیو در روبیکا راه‌اندازی شد...")
     start_web_server()   # اجرای وب سرور در background
     bot.run()
 
