@@ -1,201 +1,200 @@
 import os
-import re
 import asyncio
-import subprocess
+import requests
+import wget
 from pathlib import Path
-
+from youtube_search import YoutubeSearch
+from youtubesearchpython import SearchVideos
+from yt_dlp import YoutubeDL
 from rubka.asynco import Robot
 from rubka.context import Message
-import yt_dlp
 
-# ---------- تنظیمات اولیه ----------
-TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
+# ---------- تنظیمات ----------
+TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"  # توکن ربات خود را وارد کنید
 DOWNLOAD_DIR = Path("downloads")
-MAX_DURATION_MINUTES = 30
+DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-# ---------- متون پیام‌ها (همانند قبل) ----------
-START_TEXT_MSG = (
-    '🤖 Hello user!\n\n'
-    '📩 I can download songs for you. Just send me the song name in below format:\n'
-    '*/song*  _song name_  or\n'
-    '*/song*  _musician name - song name_\n\n'
-    'to download some songs. 🎶\n\n'
-    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
-    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
+# ---------- متن پیام start ----------
+START_TEXT = (
+    "🎵 **به ربات دانلود آهنگ و ویدیو خوش آمدید!**\n\n"
+    "📌 **دستورات:**\n"
+    "• `/song نام آهنگ` یا `/mp3 نام آهنگ` - دانلود آهنگ (mp4/m4a)\n"
+    "• `/video نام ویدیو` یا `/mp4 نام ویدیو` - دانلود ویدیو\n\n"
+    "مثال:\n"
+    "`/song آرون افشار شب رویایی`\n"
+    "`/video تایتانیک`\n\n"
+    "🎧 ساخته شده با ❤️"
 )
 
-CONFIRMATION_TEXT_MSG = (
-    "✅ Song downloaded successfully!\n\n"
-    "**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n"
-    "                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n"
-    "                          [»Get help](https://t.me/sanilaassistant_bot)\n"
-    "                          [»Give feedback](https://t.me/sanilaassistant_bot)"
-)
-
-SPOTIFY_INPUT_ERROR_TEXT_MSG = (
-    '‼️ *Oops! The bot does not support Spotify links!*\n'
-    'Try: "*/song* _song name_"\n'
-    'or: "*/song* _musician name - song name_"\n\n'
-    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
-    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
-)
-
-INVALID_COMMAND_ERROR_TEXT_MSG = (
-    '‼️ *Oops! Invalid command!*\n'
-    'Try: "*/song* _song name_"\n'
-    'or: "*/song* _musician name - song name_"\n\n'
-    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
-    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
-)
-
-TOO_LONG_ERROR_TEXT_MSG = (
-    '‼️ *Oops! Video too long to convert!*\n'
-    'Order something 30 minutes or less.\n\n'
-    '**■ ProTips**💡[ »Learn Bot](https://t.me/sanilaassistant_bot) \n'
-    '                          [»Rate Bot](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Get help](https://t.me/sanilaassistant_bot)\n'
-    '                          [»Give feedback](https://t.me/sanilaassistant_bot)'
-)
-
-# ---------- توابع کمکی ----------
-def setup_download_dir():
-    DOWNLOAD_DIR.mkdir(exist_ok=True)
-
-def parse_song_name(user_input: str) -> str:
-    user_input = user_input.replace('@songdownload597_bot', '')
-    if user_input.startswith('/song'):
-        return user_input[5:].strip()
+# ---------- تابع کمکی برای استخراج متن پس از دستور ----------
+def get_query(message: Message) -> str:
+    text = message.text or ""
+    parts = text.split(maxsplit=1)
+    if len(parts) > 1:
+        return parts[1].strip()
     return ""
 
-def is_spotify_link(text: str) -> bool:
-    return 'open.spotify.com' in text
-
-def is_valid_duration(duration_seconds: int) -> bool:
-    return duration_seconds <= (MAX_DURATION_MINUTES * 60)
-
-# ---------- دانلود با استفاده از PO Token Provider داخلی تصویر ----------
-async def download_from_youtube(song_query: str) -> dict:
-    # در این تصویر داکر، اسکریپت run-pot-server.sh سرور PO Token را روی پورت 4416 راه می‌اندازد
-    po_proc = None
-    try:
-        # اجرای اسکریپت آماده (در پس‌زمینه)
-        po_proc = subprocess.Popen(["/usr/local/bin/run-pot-server.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # منتظر آماده شدن سرور
-        await asyncio.sleep(4)
-
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '256',
-            }],
-            'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'default_search': 'ytsearch',
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'web'],
-                    'skip': ['hls', 'dash'],
-                    # استفاده از PO Token Provider محلی (bgutil)
-                    'po_token_provider': 'bgutil:http://127.0.0.1:4416/get_pot',
-                },
-            },
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{song_query}", download=True)
-            if 'entries' in info:
-                video = info['entries'][0]
-            else:
-                video = info
-
-            title = video.get('title', song_query)
-            duration = video.get('duration', 0)
-            base_title = re.sub(r'[\\/*?:"<>|]', '', title)
-            file_path = DOWNLOAD_DIR / f"{base_title}.mp3"
-            if not file_path.exists():
-                for f in DOWNLOAD_DIR.glob("*.mp3"):
-                    if f.stem.startswith(base_title[:30]):
-                        file_path = f
-                        break
-            return {'file_path': str(file_path), 'title': title, 'duration': duration}
-    finally:
-        if po_proc:
-            po_proc.terminate()
-            await asyncio.sleep(1)
-            po_proc.kill()
-
-async def download_audio(song_query: str) -> dict:
-    return await download_from_youtube(song_query)
-
-def cleanup_file(file_path: str):
-    try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            print(f"🗑️ حذف شد: {file_path}")
-    except Exception as e:
-        print(f"⚠️ خطا در حذف فایل: {e}")
-
-async def send_audio_with_caption(message: Message, audio_path: str, title: str):
-    with open(audio_path, 'rb') as audio_file:
-        await message.reply_audio(
-            audio=audio_file,
-            caption="🖇️♥️",
-            title=title
-        )
-    cleanup_file(audio_path)
-
-# ---------- راه‌اندازی ربات روبیکا ----------
+# ---------- هندلر استارت ----------
 bot = Robot(token=TOKEN)
 
 @bot.on_message(commands=["start"])
 async def start_handler(_: Robot, message: Message):
-    await message.reply(START_TEXT_MSG, parse_mode="Markdown")
+    await message.reply(START_TEXT)
 
-@bot.on_message(commands=["song"])
+# ---------- هندلر دانلود آهنگ ----------
+@bot.on_message(commands=["song", "mp3"])
 async def song_handler(_: Robot, message: Message):
-    user_input = message.text or ""
-    song_name = parse_song_name(user_input)
-    if not song_name:
-        await message.reply(INVALID_COMMAND_ERROR_TEXT_MSG, parse_mode="Markdown")
-        return
-    if is_spotify_link(song_name):
-        await message.reply(SPOTIFY_INPUT_ERROR_TEXT_MSG, parse_mode="Markdown")
+    query = get_query(message)
+    if not query:
+        await message.reply("❗ لطفاً نام آهنگ را بعد از دستور وارد کنید.\nمثال: `/song آرون افشار شب رویایی`")
         return
 
-    status_msg = await message.reply(f"🎵 جستجو و دانلود:\n`{song_name}`\n⬇️ لطفاً صبر کنید...")
+    status_msg = await message.reply(f"🔎 **در حال جستجو:** `{query}` ...")
     try:
-        result = await download_audio(song_name)
-        file_path = result['file_path']
-        title = result['title']
-        duration_sec = result['duration']
-        if duration_sec > 0 and not is_valid_duration(duration_sec):
-            await status_msg.delete()
-            await message.reply(TOO_LONG_ERROR_TEXT_MSG, parse_mode="Markdown")
-            if os.path.exists(file_path):
-                cleanup_file(file_path)
+        # جستجو در یوتیوب
+        results = YoutubeSearch(query, max_results=1).to_dict()
+        if not results:
+            await status_msg.edit("❌ هیچ نتیجه‌ای یافت نشد.")
             return
-        await status_msg.delete()
-        await send_audio_with_caption(message, file_path, title)
-        await message.reply(CONFIRMATION_TEXT_MSG, parse_mode="Markdown")
-    except Exception as e:
-        await status_msg.delete()
-        error_text = f"❌ خطا در دانلود یا ارسال:\n`{str(e)}`"
-        await message.reply(error_text)
-        print(f"❌ خطا: {e}")
 
+        video_data = results[0]
+        link = f"https://youtube.com{video_data['url_suffix']}"
+        title = video_data["title"][:40]
+        duration_str = video_data["duration"]
+        thumbnail_url = video_data["thumbnails"][0]
+
+        # محاسبه مدت زمان به ثانیه
+        duration_sec = 0
+        parts = duration_str.split(':')
+        if len(parts) == 3:
+            duration_sec = int(parts[0])*3600 + int(parts[1])*60 + int(parts[2])
+        elif len(parts) == 2:
+            duration_sec = int(parts[0])*60 + int(parts[1])
+        else:
+            duration_sec = int(parts[0])
+
+        # دانلود thumbnail
+        thumb_name = f"thumb_{title}.jpg"
+        thumb_data = requests.get(thumbnail_url, allow_redirects=True)
+        with open(thumb_name, 'wb') as f:
+            f.write(thumb_data.content)
+
+        await status_msg.edit("📀 **در حال دانلود و آماده‌سازی آهنگ...**")
+
+        # تنظیمات yt-dlp برای دانلود بهترین کیفیت صوتی (m4a)
+        ydl_opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio',
+            'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(link, download=True)
+            filename = ydl.prepare_filename(info).replace('.webm', '.m4a').replace('.opus', '.m4a')
+            if not os.path.exists(filename):
+                # اگر پسوند متفاوت بود
+                for f in DOWNLOAD_DIR.glob(f"{info['title']}*"):
+                    filename = str(f)
+                    break
+
+        # ارسال فایل صوتی به روبیکا
+        caption = "🎧 **دانلود شده توسط ربات**"
+        with open(filename, 'rb') as audio_file:
+            await message.reply_audio(
+                audio=audio_file,
+                caption=caption,
+                title=title,
+                performer="IR-BOTZ",
+                duration=duration_sec,
+                thumb=open(thumb_name, 'rb')
+            )
+
+        await status_msg.delete()
+        # پاکسازی فایل‌ها
+        os.remove(filename)
+        os.remove(thumb_name)
+
+    except Exception as e:
+        await status_msg.edit(f"❌ خطا در دانلود آهنگ:\n`{str(e)}`")
+        print(f"Error in song: {e}")
+
+# ---------- هندلر دانلود ویدیو ----------
+@bot.on_message(commands=["video", "mp4", "vidddeo", "m67p4"])
+async def video_handler(_: Robot, message: Message):
+    query = get_query(message)
+    if not query:
+        await message.reply("❗ لطفاً نام ویدیو را بعد از دستور وارد کنید.\nمثال: `/video تایتانیک`")
+        return
+
+    status_msg = await message.reply(f"🔎 **در حال جستجوی ویدیو:** `{query}` ...")
+    try:
+        # جستجو با youtubesearchpython
+        search = SearchVideos(query, offset=1, mode="dict", max_results=1)
+        result = search.result()
+        search_list = result["search_result"]
+        if not search_list:
+            await status_msg.edit("❌ هیچ ویدیویی یافت نشد.")
+            return
+
+        video_info = search_list[0]
+        video_url = video_info["link"]
+        title = video_info["title"]
+        video_id = video_info["id"]
+        thumbnail_url = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+
+        # دانلود thumbnail
+        thumb_name = f"thumb_{video_id}.jpg"
+        wget.download(thumbnail_url, out=thumb_name)
+
+        await status_msg.edit("📀 **در حال دانلود و آماده‌سازی ویدیو...**")
+
+        # تنظیمات yt-dlp برای دانلود بهترین کیفیت و تبدیل به mp4
+        ydl_opts = {
+            'format': 'best[ext=mp4]/best',
+            'outtmpl': str(DOWNLOAD_DIR / '%(id)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'merge_output_format': 'mp4',
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+            filename = ydl.prepare_filename(info).replace('.webm', '.mp4').replace('.mkv', '.mp4')
+            if not os.path.exists(filename):
+                for f in DOWNLOAD_DIR.glob(f"{info['id']}*.mp4"):
+                    filename = str(f)
+                    break
+
+        # ارسال ویدیو به روبیکا
+        caption = f"🎬 **{title[:50]}**\nدرخواست شده توسط کاربر"
+        with open(filename, 'rb') as video_file, open(thumb_name, 'rb') as thumb_file:
+            await message.reply_video(
+                video=video_file,
+                caption=caption,
+                duration=int(info.get('duration', 0)),
+                width=info.get('width', 0),
+                height=info.get('height', 0),
+                thumb=thumb_file,
+                supports_streaming=True
+            )
+
+        await status_msg.delete()
+        # پاکسازی فایل‌ها
+        os.remove(filename)
+        os.remove(thumb_name)
+
+    except Exception as e:
+        await status_msg.edit(f"❌ خطا در دانلود ویدیو:\n`{str(e)}`")
+        print(f"Error in video: {e}")
+
+# ---------- اجرای ربات ----------
 def main():
-    setup_download_dir()
-    print("🎵 ربات دانلود آهنگ با روش PO Token (تصویر آماده) راه‌اندازی شد...")
-    print("⏳ در حال اتصال به سرور روبیکا...")
+    print("🎬 ربات دانلود آهنگ و ویدیو (مبتنی بر کد تلگرام) در روبیکا راه‌اندازی شد...")
     bot.run()
 
 if __name__ == "__main__":
