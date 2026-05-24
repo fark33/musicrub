@@ -35,7 +35,7 @@ def get_query(message: Message) -> str:
     return ""
 
 # ---------- توابع همگام (Synchronous) برای دانلود واقعی (اجرا در thread جدا) ----------
-def sync_download_song(link: str, title: str, thumb_name: str, duration_sec: int):
+def sync_download_song(link: str):
     """دانلود آهنگ (اجرا در thread مجزا)"""
     ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio',
@@ -45,6 +45,8 @@ def sync_download_song(link: str, title: str, thumb_name: str, duration_sec: int
         'cookiefile': 'cookies.txt',
         'sleep_interval': 3,
         'extractor_retries': 3,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'compat_opts': ['allow-unsafe-extractor-args'],
     }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(link, download=True)
@@ -53,9 +55,9 @@ def sync_download_song(link: str, title: str, thumb_name: str, duration_sec: int
             for f in DOWNLOAD_DIR.glob(f"{info['title']}*"):
                 filename = str(f)
                 break
-        return {'filename': filename, 'title': info.get('title', title), 'duration': info.get('duration', duration_sec)}
+        return {'filename': filename, 'info': info}
 
-def sync_download_video(video_url: str, thumb_name: str):
+def sync_download_video(video_url: str):
     """دانلود ویدیو (اجرا در thread مجزا)"""
     ydl_opts = {
         'format': 'best[ext=mp4]/best',
@@ -70,6 +72,8 @@ def sync_download_video(video_url: str, thumb_name: str):
             'key': 'FFmpegVideoConvertor',
             'preferedformat': 'mp4',
         }],
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'compat_opts': ['allow-unsafe-extractor-args'],
     }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(video_url, download=True)
@@ -128,9 +132,9 @@ async def song_handler(_: Robot, message: Message):
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی آهنگ...**")
 
         # اجرای دانلود در یک thread جدا (برای جلوگیری از قفل شدن ربات)
-        result = await asyncio.to_thread(sync_download_song, link, title, thumb_name, duration_sec)
+        result = await asyncio.to_thread(sync_download_song, link)
         filename = result['filename']
-        # title و duration از result گرفته شود (اختیاری)
+        info = result['info']
 
         # ارسال فایل صوتی به روبیکا
         caption = "🎧 **دانلود شده توسط ربات**"
@@ -138,9 +142,9 @@ async def song_handler(_: Robot, message: Message):
             await message.reply_audio(
                 audio=audio_file,
                 caption=caption,
-                title=title,
+                title=info.get('title', title),
                 performer="IR-BOTZ",
-                duration=duration_sec,
+                duration=info.get('duration', duration_sec),
                 thumb=open(thumb_name, 'rb')
             )
 
@@ -184,7 +188,7 @@ async def video_handler(_: Robot, message: Message):
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی ویدیو...**")
 
         # اجرای دانلود در thread جدا
-        result = await asyncio.to_thread(sync_download_video, video_url, thumb_name)
+        result = await asyncio.to_thread(sync_download_video, video_url)
         filename = result['filename']
         info = result['info']
 
