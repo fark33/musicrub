@@ -4,7 +4,7 @@ WORKDIR /app
 
 # نصب وابستگی‌های سیستم و ابزارهای ضروری
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg wget unzip && \
+    apt-get install -y --no-install-recommends ffmpeg wget unzip git && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
