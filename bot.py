@@ -1,11 +1,12 @@
 import os
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from typing import Dict, Any
-
+import threading
+import http.server
+import socketserver
 import requests
 import wget
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from youtube_search import YoutubeSearch
 from youtubesearchpython import SearchVideos
 from yt_dlp import YoutubeDL
@@ -14,23 +15,26 @@ from rubka.context import Message
 
 # ---------- تنظیمات ----------
 TOKEN = os.environ.get("BOT_TOKEN", "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY")
+if not TOKEN:
+    raise ValueError("BOT_TOKEN environment variable not set. Please set it in Koyeb.")
+
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
-MAX_DOWNLOAD_TIMEOUT = 300  # حداکثر زمان دانلود (5 دقیقه)
-_download_executor = ThreadPoolExecutor(max_workers=1)  # مدیریت همزمانی
-_active_downloads = set()  # مجموعه برای پیگیری دانلودهای فعال
+MAX_DOWNLOAD_TIMEOUT = 300  # 5 دقیقه
 
-# ---------- کلاس مدیریت دانلود ----------
+# ---------- مدیریت نخ برای دانلود همزمان (فقط یک دانلود همزمان) ----------
+_download_executor = ThreadPoolExecutor(max_workers=1)
+
+# ---------- کلاس مدیریت دانلود (جلوگیری از قفل شدن) ----------
 class DownloadManager:
-    def __init__(self):
-        self._active = set()
-    
-    async def run_in_executor(self, func, *args):
+    @staticmethod
+    async def run_in_executor(func, *args):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_download_executor, func, *args)
 
-    async def download_song(self, link: str) -> Dict[str, Any]:
-        def _sync_download():
+    @staticmethod
+    async def download_song(link: str):
+        def _sync():
             ydl_opts = {
                 'format': 'bestaudio/best',
                 'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
@@ -56,10 +60,11 @@ class DownloadManager:
                         filename = str(f)
                         break
                 return {'filename': filename, 'info': info}
-        return await self.run_in_executor(_sync_download)
+        return await DownloadManager.run_in_executor(_sync)
 
-    async def download_video(self, video_url: str) -> Dict[str, Any]:
-        def _sync_download():
+    @staticmethod
+    async def download_video(video_url: str):
+        def _sync():
             ydl_opts = {
                 'format': 'best[ext=mp4]/best',
                 'outtmpl': str(DOWNLOAD_DIR / '%(id)s.%(ext)s'),
@@ -85,12 +90,39 @@ class DownloadManager:
                         filename = str(f)
                         break
                 return {'filename': filename, 'info': info}
-        return await self.run_in_executor(_sync_download)
+        return await DownloadManager.run_in_executor(_sync)
 
-download_manager = DownloadManager()
+# ---------- وب سرور داخلی برای Health Check (بدون Flask) ----------
+class HealthHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'OK')
 
-# ---------- متن پیام start ----------
-START_TEXT = "🎵 **به ربات دانلود آهنگ و ویدیو خوش آمدید!**\n\n📌 **دستورات:**\n• `/song نام آهنگ` یا `/mp3 نام آهنگ` - دانلود آهنگ (mp3)\n• `/video نام ویدیو` یا `/mp4 نام ویدیو` - دانلود ویدیو\n\nمثال:\n`/song آرون افشار شب رویایی`\n`/video تایتانیک`\n\n🎧 ساخته شده با ❤️"
+    def log_message(self, format, *args):
+        # خاموش کردن لاگ‌های اضافی
+        pass
+
+def run_health_server():
+    with socketserver.TCPServer(("0.0.0.0", 8000), HealthHandler) as httpd:
+        httpd.serve_forever()
+
+def start_web_server():
+    thread = threading.Thread(target=run_health_server, daemon=True)
+    thread.start()
+    print("✅ Health check server running on port 8000")
+
+# ---------- متن پیام استارت ----------
+START_TEXT = (
+    "🎵 **به ربات دانلود آهنگ و ویدیو خوش آمدید!**\n\n"
+    "📌 **دستورات:**\n"
+    "• `/song نام آهنگ` یا `/mp3 نام آهنگ` - دانلود آهنگ (mp3)\n"
+    "• `/video نام ویدیو` یا `/mp4 نام ویدیو` - دانلود ویدیو\n\n"
+    "مثال:\n"
+    "`/song آرون افشار شب رویایی`\n"
+    "`/video تایتانیک`\n\n"
+    "🎧 ساخته شده با ❤️"
+)
 
 # ---------- تابع کمکی ----------
 def get_query(message: Message) -> str:
@@ -105,12 +137,11 @@ bot = Robot(token=TOKEN)
 async def start_handler(_: Robot, message: Message):
     await message.reply(START_TEXT)
 
-# ---------- هندلر دانلود آهنگ ----------
 @bot.on_message(commands=["song", "mp3"])
 async def song_handler(_: Robot, message: Message):
     query = get_query(message)
     if not query:
-        await message.reply("❗ لطفاً نام آهنگ را بعد از دستور وارد کنید.")
+        await message.reply("❗ لطفاً نام آهنگ را بعد از دستور وارد کنید.\nمثال: `/song آرون افشار شب رویایی`")
         return
 
     status_msg = await message.reply(f"🔎 **در حال جستجو:** `{query}` ...")
@@ -125,7 +156,10 @@ async def song_handler(_: Robot, message: Message):
         title = video_data["title"][:40]
         duration_str = video_data["duration"]
         thumbnail_url = video_data["thumbnails"][0]
-        duration_sec = sum(int(x) * 60 ** i for i, x in enumerate(reversed(duration_str.split(':'))))  # تبدیل مدت زمان به ثانیه
+
+        # تبدیل مدت زمان به ثانیه
+        parts = list(map(int, duration_str.split(':')))
+        duration_sec = parts[-1] + (parts[-2]*60 if len(parts) > 1 else 0) + (parts[-3]*3600 if len(parts) > 2 else 0)
 
         thumb_name = f"thumb_{title}.jpg"
         thumb_data = requests.get(thumbnail_url, allow_redirects=True)
@@ -133,7 +167,7 @@ async def song_handler(_: Robot, message: Message):
             f.write(thumb_data.content)
 
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی آهنگ...**")
-        result = await asyncio.wait_for(download_manager.download_song(link), timeout=MAX_DOWNLOAD_TIMEOUT)
+        result = await asyncio.wait_for(DownloadManager.download_song(link), timeout=MAX_DOWNLOAD_TIMEOUT)
         filename = result['filename']
         info = result['info']
 
@@ -157,12 +191,11 @@ async def song_handler(_: Robot, message: Message):
         await status_msg.edit(f"❌ خطا در دانلود آهنگ:\n`{str(e)}`")
         print(f"Error in song: {e}")
 
-# ---------- هندلر دانلود ویدیو ----------
 @bot.on_message(commands=["video", "mp4", "vidddeo", "m67p4"])
 async def video_handler(_: Robot, message: Message):
     query = get_query(message)
     if not query:
-        await message.reply("❗ لطفاً نام ویدیو را بعد از دستور وارد کنید.")
+        await message.reply("❗ لطفاً نام ویدیو را بعد از دستور وارد کنید.\nمثال: `/video تایتانیک`")
         return
 
     status_msg = await message.reply(f"🔎 **در حال جستجوی ویدیو:** `{query}` ...")
@@ -184,7 +217,7 @@ async def video_handler(_: Robot, message: Message):
         wget.download(thumbnail_url, out=thumb_name)
 
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی ویدیو...**")
-        result = await asyncio.wait_for(download_manager.download_video(video_url), timeout=MAX_DOWNLOAD_TIMEOUT)
+        result = await asyncio.wait_for(DownloadManager.download_video(video_url), timeout=MAX_DOWNLOAD_TIMEOUT)
         filename = result['filename']
         info = result['info']
 
@@ -209,8 +242,9 @@ async def video_handler(_: Robot, message: Message):
         await status_msg.edit(f"❌ خطا در دانلود ویدیو:\n`{str(e)}`")
         print(f"Error in video: {e}")
 
-# ---------- اجرای ربات ----------
+# ---------- اجرای اصلی ----------
 def main():
+    start_web_server()
     print("🎬 ربات دانلود آهنگ و ویدیو در روبیکا راه‌اندازی شد...")
     bot.run()
 
