@@ -19,3 +19,4 @@ youtube-dl
 wget
 aiofiles
 ytthumb
+flask
