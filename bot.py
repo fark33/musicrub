@@ -12,20 +12,17 @@ from rubka.context import Message
 
 # ---------- تنظیمات ----------
 TOKEN = os.environ.get("BOT_TOKEN", "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY")
-if not TOKEN:
-    raise ValueError("BOT_TOKEN environment variable not set. Please set it in Koyeb.")
-
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-# ---------- وب سرور داخلی برای Health Check (بدون Flask) ----------
+# ---------- وب سرور داخلی برای Health Check ----------
 class HealthHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'OK')
     def log_message(self, format, *args):
-        pass  # خاموش کردن لاگ‌های اضافی
+        pass
 
 def run_health_server():
     with socketserver.TCPServer(("0.0.0.0", 8000), HealthHandler) as httpd:
@@ -37,26 +34,26 @@ def start_web_server():
     print("✅ Health check server running on port 8000")
 
 # ---------- تابع دانلود همگام (بدون تبدیل) ----------
-def sync_download_song(link: str):
-    """دانلود بهترین فرمت صوتی بدون هیچ تبدیل اضافی"""
+def sync_download(link: str):
+    """دانلود بهترین فرمت صوتی موجود (m4a یا opus) بدون هیچ تبدیلی"""
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio/best',   # بهترین فرمت صوتی اصلی
         'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
         'logger': None,
         'cookiefile': 'cookies.txt',
-        # حذف postprocessors برای جلوگیری از تبدیل
+        # حذف postprocessors => بدون تبدیل
     }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(link, download=True)
-        filename = ydl.prepare_filename(info)  # فایل با فرمت اصلی
+        filename = ydl.prepare_filename(info)
+        # اگر فایل با پسوند غیرمنتظره بود، آن را پیدا کن
         if not os.path.exists(filename):
-            # fallback: پیدا کردن فایل در پوشه
             for f in DOWNLOAD_DIR.glob(f"{info['title']}*"):
                 filename = str(f)
                 break
-        return {'filename': filename, 'info': info}
+        return filename, info
 
 # ---------- ربات ----------
 bot = Robot(token=TOKEN)
@@ -64,10 +61,10 @@ bot = Robot(token=TOKEN)
 @bot.on_message(commands=["start"])
 async def start_handler(_: Robot, message: Message):
     await message.reply(
-        "🎵 **ربات دانلود آهنگ (فوق سبک)**\n\n"
+        "🎵 **ربات دانلود آهنگ (فوق سبک - بدون تبدیل)**\n\n"
         "📌 دستور: `/song نام آهنگ`\n"
         "مثال: `/song آرون افشار شب رویایی`\n\n"
-        "⚡ بدون تبدیل، سرعت بالا، مصرف کم CPU"
+        "⚡ سریع، کم مصرف، بدون قفل شدن"
     )
 
 def get_query(message: Message) -> str:
@@ -98,7 +95,12 @@ async def song_handler(_: Robot, message: Message):
 
         # تبدیل مدت زمان به ثانیه
         parts = list(map(int, duration_str.split(':')))
-        duration_sec = parts[-1] + (parts[-2]*60 if len(parts) > 1 else 0) + (parts[-3]*3600 if len(parts) > 2 else 0)
+        if len(parts) == 1:
+            duration_sec = parts[0]
+        elif len(parts) == 2:
+            duration_sec = parts[0]*60 + parts[1]
+        else:
+            duration_sec = parts[0]*3600 + parts[1]*60 + parts[2]
 
         # دانلود thumbnail
         thumb_name = f"thumb_{title}.jpg"
@@ -106,25 +108,24 @@ async def song_handler(_: Robot, message: Message):
         with open(thumb_name, 'wb') as f:
             f.write(thumb_data.content)
 
-        await status_msg.edit("📀 **در حال دانلود (بدون تبدیل)...**")
+        await status_msg.edit("📀 **در حال دانلود (بدون تبدیل، سرعت بالا)...**")
 
-        # اجرای دانلود در thread جدا (برای جلوگیری از قفل شدن)
-        result = await asyncio.to_thread(sync_download_song, link)
-        filename = result['filename']
-        info = result['info']
+        # دانلود در thread جدا (جلوگیری از قفل شدن)
+        filename, info = await asyncio.to_thread(sync_download, link)
 
         # ارسال فایل صوتی (فرمت اصلی)
-        with open(filename, 'rb') as audio_file:
+        with open(filename, 'rb') as audio_file, open(thumb_name, 'rb') as thumb_file:
             await message.reply_audio(
                 audio=audio_file,
                 caption=f"🎧 {info.get('title', title)}",
                 title=info.get('title', title),
                 performer="YouTube",
                 duration=info.get('duration', duration_sec),
-                thumb=open(thumb_name, 'rb')
+                thumb=thumb_file
             )
 
         await status_msg.delete()
+        # پاکسازی فایل‌ها
         os.remove(filename)
         os.remove(thumb_name)
 
@@ -134,8 +135,8 @@ async def song_handler(_: Robot, message: Message):
 
 # ---------- اجرای اصلی ----------
 def main():
-    start_web_server()        # راه‌اندازی health check در پس‌زمینه
-    print("🎬 ربات سبک دانلود آهنگ (بدون تبدیل) راه‌اندازی شد...")
+    start_web_server()
+    print("🎬 ربات دانلود آهنگ (بدون تبدیل) راه‌اندازی شد...")
     bot.run()
 
 if __name__ == "__main__":
