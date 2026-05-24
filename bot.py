@@ -11,7 +11,7 @@ from rubka.asynco import Robot
 from rubka.context import Message
 
 # ---------- تنظیمات ----------
-TOKEN = os.environ.get("BOT_TOKEN")
+TOKEN = os.environ.get("BOT_TOKEN", "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY")
 if not TOKEN:
     raise ValueError("BOT_TOKEN environment variable not set. Please set it in Koyeb.")
 
