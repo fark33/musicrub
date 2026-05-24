@@ -10,7 +10,7 @@ from rubka.asynco import Robot
 from rubka.context import Message
 
 # ---------- تنظیمات ----------
-TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"  # توکن ربات خود را وارد کنید
+TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
@@ -51,7 +51,6 @@ async def song_handler(_: Robot, message: Message):
 
     status_msg = await message.reply(f"🔎 **در حال جستجو:** `{query}` ...")
     try:
-        # جستجو در یوتیوب
         results = YoutubeSearch(query, max_results=1).to_dict()
         if not results:
             await status_msg.edit("❌ هیچ نتیجه‌ای یافت نشد.")
@@ -81,14 +80,13 @@ async def song_handler(_: Robot, message: Message):
 
         await status_msg.edit("📀 **در حال دانلود و آماده‌سازی آهنگ...**")
 
-        # تنظیمات yt-dlp برای دانلود بهترین کیفیت صوتی (m4a)
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/bestaudio',
             'outtmpl': str(DOWNLOAD_DIR / '%(title)s.%(ext)s'),
             'quiet': True,
             'no_warnings': True,
-            'cookiefile': 'cookies.txt',          # اضافه شد
-            'sleep_interval': 3,                  # تاخیر بین درخواست‌ها
+            'cookiefile': 'cookies.txt',      # استفاده از کوکی
+            'sleep_interval': 3,
             'extractor_retries': 3,
         }
 
@@ -153,7 +151,7 @@ async def video_handler(_: Robot, message: Message):
             'quiet': True,
             'no_warnings': True,
             'merge_output_format': 'mp4',
-            'cookiefile': 'cookies.txt',          # اضافه شد
+            'cookiefile': 'cookies.txt',      # استفاده از کوکی
             'sleep_interval': 3,
             'extractor_retries': 3,
             'postprocessors': [{
@@ -190,9 +188,35 @@ async def video_handler(_: Robot, message: Message):
         await status_msg.edit(f"❌ خطا در دانلود ویدیو:\n`{str(e)}`")
         print(f"Error in video: {e}")
 
+# ---------- وب سرور داخلی برای Health Check در Koyeb ----------
+try:
+    from flask import Flask
+    from threading import Thread
+
+    web_app = Flask(__name__)
+
+    @web_app.route('/')
+    def health_check():
+        return "OK", 200
+
+    def run_web_server():
+        port = int(os.environ.get('PORT', 8000))
+        web_app.run(host='0.0.0.0', port=port)
+
+    def start_web_server():
+        server = Thread(target=run_web_server)
+        server.daemon = True
+        server.start()
+        print("✅ وب سرور داخلی برای health check راه‌اندازی شد.")
+except ImportError:
+    print("⚠️ Flask نصب نیست، وب سرور health check راه‌اندازی نشد.")
+    def start_web_server():
+        pass
+
 # ---------- اجرای ربات ----------
 def main():
     print("🎬 ربات دانلود آهنگ و ویدیو (مبتنی بر کد تلگرام) در روبیکا راه‌اندازی شد...")
+    start_web_server()   # اجرای وب سرور در background
     bot.run()
 
 if __name__ == "__main__":
