@@ -32,7 +32,7 @@ def get_response(user_message: str) -> str | None:
         return "بیا بغلم 🫂"
     return None
 
-bot = Robot(token=os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE"))
+bot = Robot(token=os.getenv("BOT_TOKEN", "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"))
 
 @bot.on_message()
 async def handle_message(bot: Robot, message: context.Message):
