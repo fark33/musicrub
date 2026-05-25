@@ -1,4 +1,4 @@
-# responses.py
+# responses.py file
 import random
 
 handcrafted_responses = {
