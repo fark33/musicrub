@@ -10,6 +10,6 @@ COPY bot.py .
 COPY responses.py .
 
 # متغیر محیطی برای توکن (در زمان اجرا مقداردهی کن)
-ENV BOT_TOKEN=""
+#ENV BOT_TOKEN=""
 
 CMD ["python", "-u", "bot.py"]
