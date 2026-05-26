@@ -51,7 +51,7 @@ def get_response(user_message: str) -> str | None:
 
     return None
 
-BOT_TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
+BOT_TOKEN = "BFIAHC0SXAOBYXWCCIESTXLPPFNYBCJRWKBYVFCCVDZMYMSKVULHWKBRLAELIMJA"
 bot = Robot(token=BOT_TOKEN)
 
 # === مهم: دکوراتورهای اختصاصی دستورات باید اول قرار بگیرند ===
