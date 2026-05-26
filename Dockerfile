@@ -5,11 +5,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# کپی فایل‌های ربات
+# کپی تمام فایل‌ها
 COPY bot.py .
 COPY responses.py .
-
-# متغیر محیطی برای توکن (در زمان اجرا مقداردهی کن)
-#ENV BOT_TOKEN=""
+COPY question.py .
 
 CMD ["python", "-u", "bot.py"]
