@@ -19,7 +19,7 @@ def run_flask():
 
 # --- بخش دوم: تنظیمات ربات روبیکا ---
 def normalize_text(text: str) -> str:
-    # اصلاح شد: تبدیل حروف تکراری (مثل سلامممم) به یک حرف (سلام) برای تطابق دقیق با کلیدها
+    # تبدیل حروف تکراری (مثل سلامممم) به یک حرف (سلام) برای تطابق دقیق با کلیدهای دکشنری
     text = re.sub(r'(.)\1+', r'\1', text)
     return text.strip()
 
@@ -51,7 +51,7 @@ def get_response(user_message: str) -> str | None:
 
     return None
 
-BOT_TOKEN = "IIBGE0GTQVSBGRKBQTBZSPWHJAQPMTLFSHHSSGDRUFNOXKOUHEHCOLTOKQPDPOWY"
+BOT_TOKEN = "توکن_واقعی_خود_را_اینجا_قرار_دهید"
 bot = Robot(token=BOT_TOKEN)
 
 # === مهم: دکوراتورهای اختصاصی دستورات باید اول قرار بگیرند ===
@@ -74,14 +74,14 @@ async def help_command(bot: Robot, message: context.Message):
 @bot.on_message()
 async def handle_message(bot: Robot, message: context.Message):
     try:
-        # ۱. بررسی ایمن هویت فرستنده (جلوگیری از باگ None == None)
+        # ۱. بررسی ایمن هویت فرستنده (جلوگیری از باگ شناسایی نشدن فیلدها)
         author_guid = getattr(message, 'author_guid', None)
         bot_guid = getattr(bot, 'guid', None)
         
         if author_guid and bot_guid and author_guid == bot_guid:
             return
 
-        # ۲. دسترسی ایمن به استیکر (جلوگیری از AttributeError)
+        # ۲. دسترسی ایمن به استیکر
         if hasattr(message, 'sticker') and message.sticker:
             sticker_emoji = getattr(message.sticker, 'emoji', None)
             if sticker_emoji in ["👋", "🙋", "🙏"]:
@@ -108,11 +108,10 @@ async def handle_message(bot: Robot, message: context.Message):
                 await message.reply(response)
                 return
 
-            # پاسخ پیش‌فرض در صورت عدم تطابق
-            await message.reply("متوجه نشدم 😅 یه طور دیگه بگو یا از من سوال بپرس!")
+            # پیام پیش‌فرض قبلی از اینجا حذف شد؛ ربات در صورت عدم تطابق کاملاً سکوت می‌کند.
             
     except Exception as e:
-        # در صورت بروز هرگونه خطای پیش‌بینی نشده، آن را در کنسول چاپ می‌کند
+        # در صورت بروز هرگونه خطای داخلی، جزییات آن در محیط داکر/کنسول چاپ می‌شود
         print(f"❌ خطایی در هندلر پیام رخ داد: {e}")
 
 # --- بخش سوم: اجرای همزمان ربات و وب سرور ---
