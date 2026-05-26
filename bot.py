@@ -74,21 +74,22 @@ async def help_command(bot: Robot, message: context.Message):
 @bot.on_message()
 async def handle_message(bot: Robot, message: context.Message):
     try:
-        # ۱. بررسی ایمن هویت فرستنده (جلوگیری از باگ شناسایی نشدن فیلدها)
-        author_guid = getattr(message, 'author_guid', None)
-        bot_guid = getattr(bot, 'guid', None)
+        # ۱. بررسی هویت فرستنده (فقط برای اینکه ربات به پیام‌های خودش جواب ندهد)
+        author_guid = getattr(message, 'author_guid', None) or getattr(message, 'from_user_id', None)
+        bot_guid = getattr(bot, 'guid', None) or getattr(bot, 'user_id', None)
         
-        if author_guid and bot_guid and author_guid == bot_guid:
+        # اگر فرستنده خود ربات بود، پیام را نادیده می‌گیرد تا حلقه تکرار درست نشود
+        if author_guid and bot_guid and str(author_guid) == str(bot_guid):
             return
 
-        # ۲. دسترسی ایمن به استیکر
+        # ۲. دسترسی ایمن به استیکر برای همه کاربران
         if hasattr(message, 'sticker') and message.sticker:
             sticker_emoji = getattr(message.sticker, 'emoji', None)
             if sticker_emoji in ["👋", "🙋", "🙏"]:
                 await message.reply("خدانگهدار عزیزم، دلم برات تنگ میشه💔")
                 return
 
-        # ۳. پردازش متن پیام
+        # ۳. پردازش متن پیام همه کاربران در گروه و پیوی
         msg_text = getattr(message, 'text', None)
         if msg_text:
             text = msg_text.strip()
@@ -102,16 +103,13 @@ async def handle_message(bot: Robot, message: context.Message):
                     await message.reply("سوالی توی لیست نیست :(")
                 return
 
-            # بررسی پاسخ‌های دکشنری
+            # بررسی پاسخ‌های دکشنری برای پیام همه کاربران
             response = get_response(text)
             if response:
                 await message.reply(response)
                 return
-
-            # پیام پیش‌فرض قبلی از اینجا حذف شد؛ ربات در صورت عدم تطابق کاملاً سکوت می‌کند.
             
     except Exception as e:
-        # در صورت بروز هرگونه خطای داخلی، جزییات آن در محیط داکر/کنسول چاپ می‌شود
         print(f"❌ خطایی در هندلر پیام رخ داد: {e}")
 
 # --- بخش سوم: اجرای همزمان ربات و وب سرور ---
